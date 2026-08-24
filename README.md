@@ -11,7 +11,7 @@
 
 ## What It Does
 
-`/secure-code-review` is a slash skill for [Claude Code](https://claude.ai/code) that performs deep security analysis on your codebase. Claude reads your source files directly, traces data flows from user input to dangerous sinks, and reports exploitable vulnerabilities — not just pattern matches.
+`/secure-code-review` is a slash skill that performs deep security analysis on your codebase. Claude reads your source files directly, traces data flows from user input to dangerous sinks, and reports exploitable vulnerabilities — not just pattern matches.
 
 - **10 vulnerability categories** — injection, auth, authorization, crypto, data exposure, input validation, configuration, business logic, dependencies, and language-specific issues
 - **Universal language support** — auto-detects the language from signal files; no configuration needed
