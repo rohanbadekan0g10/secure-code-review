@@ -76,3 +76,19 @@ Catastrophic backtracking patterns:
 - `res.redirect(req.query.url)` without allowlist validation
 - `Location` header set from user input
 - `window.location = params.next` client-side without origin check
+
+## 7.6 HTTP Security Headers
+
+Check for these headers in: Express `helmet()` / manual `res.setHeader()`, Django `SECURE_*` settings, Spring Security `HttpSecurity` config, `web.config`, `nginx.conf`, Next.js `headers()` in `next.config.js`.
+
+| Header | Minimum required value | Risk if missing |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | SSL stripping, MITM |
+| `X-Content-Type-Options` | `nosniff` | MIME-type sniffing → script execution |
+| `X-Frame-Options` or `frame-ancestors` CSP | `DENY` or `SAMEORIGIN` | Clickjacking |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` or stricter | Internal URL leakage |
+| `Permissions-Policy` | Restrict camera/mic/geolocation | Feature abuse |
+
+Flag as LOW severity. Flag missing HSTS as MEDIUM if the app handles sensitive data.
+
+Note: verify in middleware/config files, not just route handlers. A global helmet() call covers all routes.

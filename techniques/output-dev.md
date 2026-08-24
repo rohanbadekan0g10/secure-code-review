@@ -10,6 +10,7 @@ description: "Developer-friendly output format for secure-code-review — ❌ NE
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [SEVERITY] Finding Class  ·  path/to/file.ext:line
+OWASP: A03:2021 Injection  ·  CWE-89
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   ❌ NEVER do this:
@@ -25,6 +26,17 @@ description: "Developer-friendly output format for secure-code-review — ❌ NE
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+### Suppression (`// scr-ignore:`)
+
+If a line has `// scr-ignore: <reason>` (or `# scr-ignore:` in Python/Ruby) within ±2 lines of the finding:
+- Do NOT output the finding in dev format
+- Log it in a separate "Accepted Risk" block at the end:
+  ```
+  ACCEPTED RISK (1)
+    src/utils/query.js:47 — sql_injection — "parameterized at call site upstream"
+  ```
+- Bare `// scr-ignore` without a reason → still flag with: `Suppression missing reason — treated as active finding`
 
 ## Example
 
@@ -52,8 +64,34 @@ description: "Developer-friendly output format for secure-code-review — ❌ NE
 ## Summary Line (after all findings)
 
 ```
-Found: N CRITICAL  N HIGH  N MEDIUM  N LOW
+Found: N CRITICAL  N HIGH  N MEDIUM  N LOW  (N accepted risk)
 ```
+
+## Security Score (always append)
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Security Score: C+  (62/100)
+  Previous scan:  D   (48/100)  ↑ +14 points
+
+  Breakdown:
+    Critical findings:  N  (−20 pts each)
+    High findings:      N  (−10 pts each)
+    Medium findings:    N  (−3 pts each)
+    Accepted risks:     N  (documented)    +2 pts each
+    No hardcoded secrets found             +10 pts
+    Dependencies up to date                +10 pts
+
+  Grade: A (90–100) · B (75–89) · C (60–74) · D (40–59) · F (<40)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Save score to `sast-findings/score.json`:
+```json
+{"date": "2026-08-24", "score": 62, "grade": "C+", "critical": 2, "high": 3, "medium": 4, "low": 1}
+```
+
+On next scan, read `score.json` and show trend line. If file does not exist, no trend shown.
 
 ## --audit Verdict Block (before checklist, if --audit was passed)
 
@@ -111,6 +149,73 @@ CI/CD
   [ ] Secrets not echoed in pipeline logs
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+## --fix Behavior (if --fix was passed)
+
+For every finding with `confidence: HIGH`:
+1. Show diff preview before writing:
+   ```
+   Fix: src/services/userService.js:47
+   - db.query(`SELECT * FROM users WHERE name = '${data.name}'`)
+   + db.query('SELECT * FROM users WHERE name = $1', [data.name])
+   Apply? [y/N]
+   ```
+2. Without `--yes`: prompt per file, default NO
+3. With `--yes`: auto-apply all HIGH-confidence fixes without prompting
+4. Write `sast-fixes.log` listing every file changed and what was changed
+5. Skip `confidence: MEDIUM` and `confidence: LOW` — never auto-fix uncertain findings
+6. Never modify test files unless `--fix-tests` also passed
+
+## --baseline Behavior (if --baseline passed)
+
+- First run: write `sast-findings/.baseline.json` with all current findings (file + finding class + code hash). Print: `Baseline established: N findings recorded.`
+- Subsequent runs (baseline file exists): suppress baseline findings from output. Print: `N new findings · N existing findings suppressed (baseline)`
+- `--show-all` overrides: shows everything including baseline findings
+- `--report` always includes baseline findings under "Pre-existing / Out of Scope" section
+- Match by: file path + finding class + code snippet hash (not line number — survives refactors)
+
+## --min-severity Behavior
+
+- `--min-severity critical` → show only CRITICAL
+- `--min-severity high` → show CRITICAL + HIGH
+- `--min-severity medium` → show CRITICAL + HIGH + MEDIUM (default)
+- `--min-severity low` → show all
+- Suppressed findings and score still calculated on full set — filter is display-only
+
+## --pr-comment Behavior (if --pr-comment passed)
+
+Requires: `GITHUB_TOKEN` env var set. Detects current branch's open PR via `gh pr view`.
+
+1. Group all findings into a single PR review (not separate comments)
+2. Post each finding as an inline comment on the exact line in the diff
+3. Add PR-level summary comment with security score at top
+4. Findings suppressed via `// scr-ignore:` → no comment posted
+5. Print: `Posted N inline comments on PR #123`
+
+## --watch Behavior (if --watch passed)
+
+1. Print: `Watching <N> files. Save any file to scan it.`
+2. On file save: rescan only the changed file using `--quick` depth
+3. Display findings for that file, clear on next save
+4. Stop with Ctrl+C
+5. Combine with `--min-severity high` to reduce noise: `--watch --min-severity high`
+
+## --git-history Behavior (if --git-history passed)
+
+1. Run: `git log -p --all` piped through secret pattern matching
+2. Scan for: `AKIA*` `sk_live_*` `sk_ant_*` `ghp_*` `-----BEGIN RSA PRIVATE KEY-----` connection strings with passwords `password =` `api_key =`
+3. Report: commit hash · author · date · file (even if deleted) · matched pattern
+4. Suggest: rotate credential immediately + `git filter-repo` to rewrite history
+5. Runs separately from code scan — does not affect security score
+
+## --sarif Behavior (if --sarif passed)
+
+Write `sast-findings/results.sarif` after scan. SARIF 2.1.0 format compatible with GitHub Security tab. Each finding maps to a SARIF `result` with `ruleId` (CWE), `level`, `locations` (file + line), and `message`. Upload in CI:
+```yaml
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: sast-findings/results.sarif
 ```
 
 ## --emit-ci Output (if --emit-ci was passed)
