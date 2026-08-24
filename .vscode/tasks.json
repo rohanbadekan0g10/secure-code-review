@@ -1,0 +1,60 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Security Review — Full (Claude Code)",
+      "type": "shell",
+      "command": "claude",
+      "args": ["-p", "/secure-code-review ${workspaceFolder}"],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Security Review — Quick (Claude Code)",
+      "type": "shell",
+      "command": "claude",
+      "args": ["-p", "/secure-code-review ${workspaceFolder} --quick"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Security Review — Changed Files Only (Claude Code)",
+      "type": "shell",
+      "command": "claude",
+      "args": ["-p", "/secure-code-review ${workspaceFolder} --diff"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Security Review — Audit Third-Party Code (Claude Code)",
+      "type": "shell",
+      "command": "claude",
+      "args": ["-p", "/secure-code-review ${workspaceFolder} --audit"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

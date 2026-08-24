@@ -1,6 +1,11 @@
 # secure-code-review
 
-> **Claude-native SAST for engineering teams** — security code review powered entirely by Claude Code. No external tools, no installs, no API keys. Works on Windows, Mac, Linux, and air-gapped environments.
+> **Universal security code review for engineering teams** — works in Claude Code, GitHub Copilot, Visual Studio, VS Code, and any IDE. No external tools, no installs, no API keys.
+
+[![Works with Claude Code](https://img.shields.io/badge/Claude%20Code-skill-blue)](https://claude.ai/code)
+[![Works with GitHub Copilot](https://img.shields.io/badge/GitHub%20Copilot-compatible-green)](https://github.com/features/copilot)
+[![VS Code](https://img.shields.io/badge/VS%20Code-tasks%20included-blue)](https://code.visualstudio.com)
+[![Visual Studio](https://img.shields.io/badge/Visual%20Studio-Copilot%20compatible-purple)](https://visualstudio.microsoft.com)
 
 ---
 
@@ -264,10 +269,109 @@ Every review appends a checklist covering secrets, authentication, input validat
 
 ---
 
+## Universal Setup — Works in Every IDE
+
+### Claude Code (CLI · Desktop · VS Code Extension · Web)
+
+The full skill with all flags. Best experience — deep data-flow tracing, parallel subagents, backdoor detection.
+
+```bash
+# Install
+git clone https://github.com/YOUR-ORG/secure-code-review \
+  ~/.claude/skills/secure-code-review   # macOS/Linux
+
+git clone https://github.com/YOUR-ORG/secure-code-review `
+  "$env:USERPROFILE\.claude\skills\secure-code-review"   # Windows
+
+# Use
+/secure-code-review ~/code/my-app
+/secure-code-review ~/code/my-app --audit
+```
+
+Restart Claude Code — `/secure-code-review` appears immediately.
+
+---
+
+### GitHub Copilot (VS Code · Visual Studio · JetBrains · github.com)
+
+Two files to copy into each project repo:
+
+**1. Security awareness on every Copilot suggestion** — copy to `.github/copilot-instructions.md`:
+
+```bash
+cp templates/copilot-instructions.md .github/copilot-instructions.md
+```
+
+Once added, Copilot will automatically:
+- Flag injection sinks as you type
+- Suggest parameterized queries instead of string SQL
+- Warn on hardcoded secrets and weak crypto
+- Enforce `HttpOnly`/`Secure` on cookie suggestions
+
+**2. Full security review on demand** — copy to `.github/prompts/security-review.prompt.md`:
+
+```bash
+mkdir -p .github/prompts
+cp templates/security-review.prompt.md .github/prompts/security-review.prompt.md
+```
+
+Then in Copilot Chat (VS Code or Visual Studio), type:
+
+```
+#security-review
+```
+
+Or reference specific files:
+
+```
+#security-review review #file:src/controllers/userController.js
+#security-review check this for SQL injection #selection
+```
+
+Copilot will run all 10 vulnerability categories with ❌/✅ fix suggestions.
+
+---
+
+### VS Code Tasks (Claude Code Extension)
+
+If your team uses the Claude Code VS Code extension, the `.vscode/tasks.json` included in this repo adds four commands to the VS Code Task Runner:
+
+| Task | Keyboard |
+|---|---|
+| Security Review — Full | `Ctrl+Shift+P` → Tasks: Run Task → Security Review — Full |
+| Security Review — Quick | Tasks: Run Task → Security Review — Quick |
+| Security Review — Changed Files Only | Tasks: Run Task → Security Review — Changed Files Only |
+| Security Review — Audit Third-Party Code | Tasks: Run Task → Security Review — Audit Third-Party Code |
+
+Copy `.vscode/tasks.json` to your project repo to enable these tasks.
+
+---
+
+### Org-Wide Rollout Checklist
+
+To deploy across your organization:
+
+```
+For every project repo:
+  [ ] Copy templates/copilot-instructions.md → .github/copilot-instructions.md
+  [ ] Copy templates/security-review.prompt.md → .github/prompts/security-review.prompt.md
+  [ ] Copy .vscode/tasks.json → .vscode/tasks.json  (if using VS Code)
+
+For developers who want deep analysis:
+  [ ] Install Claude Code: https://claude.ai/code
+  [ ] Clone this repo to ~/.claude/skills/secure-code-review
+  [ ] Done — /secure-code-review is available immediately
+```
+
+---
+
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) — the only requirement
-- Claude account with access to claude.ai (free or Pro)
+| Tool | Requirement |
+|---|---|
+| Claude Code | [Claude Code](https://claude.ai/code) + Claude account (free or Pro) |
+| GitHub Copilot | GitHub Copilot subscription + VS Code, Visual Studio, or JetBrains |
+| VS Code Tasks | Claude Code VS Code extension |
 
 ---
 
