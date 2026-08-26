@@ -20,7 +20,7 @@ SF01 [HIGH] SQL Injection — src/controllers/userController.js:47
 
 Trace one level of function calls. If controller calls a service with user input, check that service for sinks.
 
-If `--graph` was passed: run `graphify path "<source>" "<sink>" --graph <path>` via Bash.
+If `--graph` was passed: the G4 phase in `graph-traversal.md` has already computed source→sink paths. Use the on-path file set from Phase G4 — no additional traversal needed; deep-read only those files.
 Otherwise: use Read/Grep to trace manually.
 
 ```
@@ -38,7 +38,7 @@ SF01 [CRITICAL] SQL Injection — src/services/userService.js:47
 Trace the complete path from HTTP entry point through ALL function calls to the sink.
 Read every file in the call chain. Note any sanitization encountered and whether it addresses the specific sink type.
 
-If `--graph` passed: use `graphify query "<question>" --graph <path>` for multi-hop paths.
+If `--graph` passed: multi-hop paths are already resolved by the G4 traversal phase in `graph-traversal.md`. Read the on-path file set directly — the graph pipeline has already eliminated off-path files.
 
 ```
 SF01 [CRITICAL] SQL Injection — src/repositories/userRepo.js:23

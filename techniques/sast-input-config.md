@@ -92,3 +92,67 @@ Check for these headers in: Express `helmet()` / manual `res.setHeader()`, Djang
 Flag as LOW severity. Flag missing HSTS as MEDIUM if the app handles sensitive data.
 
 Note: verify in middleware/config files, not just route handlers. A global helmet() call covers all routes.
+
+## 7.7 CSRF Detection Patterns
+
+CSRF protection is often **accidentally disabled** rather than never added. Flag these explicit disablement patterns:
+
+```python
+# ❌ NEVER (Django):
+from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt           # disables CSRF for this entire view
+def payment_view(request):
+    ...
+
+# ❌ NEVER (Django REST Framework): globally disables CSRF for all API views
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',  # + no CsrfExemptSessionAuthentication
+    ]
+}
+```
+
+```java
+// ❌ NEVER (Spring Security):
+http.csrf().disable()          // disables CSRF globally
+http.csrf(csrf -> csrf.disable())  // lambda style
+
+// ✅ ALWAYS: use CookieCsrfTokenRepository for SPAs or keep default
+http.csrf(csrf -> csrf
+    .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
+```
+
+```javascript
+// ❌ NEVER (Express/csurf):
+app.use(csrf({ cookie: true }))
+app.post('/transfer', csrf({ ignoreMethods: ['POST'] }), handler)  // skips POST check
+
+// ❌ NEVER: csurf middleware never applied to mutation routes
+// Check: are POST/PUT/PATCH/DELETE routes covered by csurf() or a CSRF token check?
+
+// ❌ NEVER (Fastify):
+fastify.register(require('@fastify/csrf-protection'), {
+  sessionPlugin: '@fastify/cookie',
+  getToken: () => undefined   // always returns undefined → always passes
+})
+```
+
+```php
+// ❌ NEVER (Laravel):
+// In VerifyCsrfToken middleware, adding routes to $except:
+protected $except = [
+    'api/*',          // disables CSRF for all API routes — fine only if stateless JWT auth
+    'payment/webhook' // legitimate for webhooks, but verify HMAC signature instead
+];
+```
+
+**What to flag:**
+1. `@csrf_exempt` on any state-mutating view (POST/PUT/PATCH/DELETE) that uses session auth
+2. `.csrf().disable()` in Spring Security config
+3. `csrf_exempt` in URL patterns for non-webhook routes
+4. Flask-WTF: `WTF_CSRF_ENABLED = False` in production config
+5. Missing CSRF middleware entirely on session-authenticated mutation endpoints
+6. Webhook routes with `csrf_exempt` but **no HMAC signature verification** — must replace CSRF with signature check
+
+Severity: MEDIUM (CSRF typically). Escalate to HIGH if on a financial/admin endpoint.

@@ -218,6 +218,88 @@ Write `sast-findings/results.sarif` after scan. SARIF 2.1.0 format compatible wi
     sarif_file: sast-findings/results.sarif
 ```
 
+## --json Behavior (if --json passed)
+
+Output all findings as a JSON array instead of the ❌/✅ blocks. One object per finding:
+```json
+[
+  {
+    "id": "SF01",
+    "severity": "CRITICAL",
+    "confidence": "HIGH",
+    "category": "injection",
+    "class": "sql_injection",
+    "file": "src/services/userService.js",
+    "line": 47,
+    "sink": "db.query(sql)",
+    "source": "req.body.username",
+    "owasp": "A03:2021",
+    "cwe": "CWE-89",
+    "remediation": "Use parameterized query"
+  }
+]
+```
+Still append score JSON to `sast-findings/score.json`. Pre-deployment checklist is suppressed in `--json` mode (machine-readable output only). Security score appears as a trailing JSON object: `{"score": 62, "grade": "C+", ...}`.
+
+## --explain Behavior (if --explain passed)
+
+For every finding in addition to the standard ❌/✅ format, append a 3-sentence attack scenario:
+```
+  Attack scenario:
+    An attacker sends a POST request to /api/users with the username field set to
+    "' OR 1=1 --". The query becomes SELECT * FROM users WHERE name = '' OR 1=1 --',
+    which returns all rows. The attacker receives the full user table in the response,
+    including hashed passwords and PII.
+```
+Use concrete, realistic payloads. No vague "may allow an attacker to". The scenario should be specific to the code path found.
+
+## --ci Behavior (if --ci passed or CI=true env var detected)
+
+1. After completing the scan, check if any finding has severity CRITICAL or HIGH
+2. If yes: exit with status code 1 (causes CI pipeline to fail)
+3. If no: exit with status code 0
+4. Print before findings:
+   ```
+   [CI MODE] Scan will exit 1 on any CRITICAL or HIGH finding
+   ```
+5. Combine with `--min-severity` to adjust threshold: `--ci --min-severity medium` → exit 1 on MEDIUM+
+6. Suppressed findings (`// scr-ignore:`) do NOT count toward the exit code — accepted risks don't fail CI
+7. `--baseline` findings do NOT count toward exit code — only new findings break the build
+
+## --scope Behavior (if --scope <file> passed)
+
+Read the scope file before scanning. Format (one entry per line):
+```
+# in-scope hosts / paths / endpoints
+app.example.com
+/api/v1/*
+/admin/**
+src/payments/
+!src/payments/test/   # exclude (prefix with !)
+```
+
+Apply scope as an additional filter on top of auto-excludes:
+- Only scan files under in-scope paths
+- Skip files matching `!` exclusion lines
+- At the start of output, print: `Scope: N files in scope, N excluded`
+
+## --compliance Behavior (if --compliance <framework> passed)
+
+Load `techniques/sast-compliance.md` and tag each finding with the relevant compliance control IDs:
+- `--compliance pci` → tag findings with PCI-DSS Requirement numbers (e.g., `PCI Req 6.3.1`)
+- `--compliance hipaa` → tag findings with HIPAA §164.312 sections
+- `--compliance soc2` → tag findings with SOC 2 CC criterion codes
+
+Add compliance tag inline in the finding header:
+```
+[CRITICAL] SQL Injection  ·  src/db/query.js:89  ·  PCI Req 6.3.1 · HIPAA §164.312(a)(1)
+```
+
+Also append a compliance summary at the end:
+```
+PCI-DSS Coverage: 4 findings map to requirements 6.3.1, 8.3.6, 10.2, 10.3
+```
+
 ## --emit-ci Output (if --emit-ci was passed)
 
 After checklist, read and write CI templates:
@@ -226,11 +308,17 @@ After checklist, read and write CI templates:
 2. Write to `<scanned-path>/.github/workflows/security.yml` (create dirs if needed)
 3. Read `references/ci-templates/pre-commit-config.yaml`
 4. Write to `<scanned-path>/.pre-commit-config.yaml`
-5. Print:
+5. Read `references/ci-templates/gitlab-ci.yml`
+6. Ask user: "Write GitLab CI template? [y/N]" — write to `<scanned-path>/.gitlab-ci-security.yml` if yes
+7. Read `references/ci-templates/dependabot.yml`
+8. Write to `<scanned-path>/.github/dependabot.yml` (creates/merges with existing)
+9. Print:
 ```
 CI configs generated:
-  ✓ .github/workflows/security.yml  — GitHub Actions (Gitleaks + Semgrep + Trivy + Checkov)
-  ✓ .pre-commit-config.yaml         — pre-commit hooks
+  ✓ .github/workflows/security.yml  — GitHub Actions (Gitleaks + Semgrep + Trivy + Checkov, SHA-pinned)
+  ✓ .pre-commit-config.yaml         — pre-commit hooks (gitleaks + private-key detection)
+  ✓ .github/dependabot.yml          — Dependabot (npm, pip, docker, Actions, Terraform, weekly)
+  ✓ .gitlab-ci-security.yml         — GitLab CI security jobs (if requested)
 
 Setup: pip install pre-commit && pre-commit install
 Note: These tools are optional. /secure-code-review works without them.

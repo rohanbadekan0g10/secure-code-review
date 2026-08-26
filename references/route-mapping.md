@@ -7,7 +7,7 @@ description: "Phase 3 route mapping — extract HTTP routes and map to handler f
 
 Load this reference when: `--thorough` is passed, or `/engage-sast` needs DAST correlation targets.
 
-If `--graph` was passed: run `graphify query "list all routes/handlers" --graph <path>` via Bash — use its output as the primary route map source. Skip per-framework grep below.
+If `--graph` was passed: route handlers are already identified as entry-point nodes during Phase G2 community detection in `graph-traversal.md` — use those entry_point values as the route map. Skip per-framework grep below.
 
 ## Extraction Patterns
 

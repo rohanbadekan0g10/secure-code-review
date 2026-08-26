@@ -35,11 +35,27 @@ Claude-native SAST. No external tools — Claude IS the engine.
 | `--emit-ci` | Write GitHub Actions + pre-commit security configs |
 | `--custom-rules <f>` | Append org-specific rules as category 11 |
 | `--language <l>` | Force language detection |
-| `--graph <path>` | Graphify graph.json for data-flow acceleration |
+| `--graph` | GraphRAG-mode: build call graph → community detection → deep-read only source→sink paths (~60% token reduction) |
+| `--json` | Output findings as JSON array (machine-readable) |
+| `--explain` | Add 3-sentence attack-scenario explanation to every finding |
+| `--ci` | CI mode: exit 1 on any finding ≥ HIGH; auto-detected when `CI=true` |
+| `--scope <file>` | Load scope file (in-scope hosts/paths/endpoints) for targeted scan |
+| `--compliance <f>` | Tag findings by compliance framework: `pci`, `hipaa`, `soc2` |
 
 ## Phase 0 — Setup
 
-### 0a — Verify path exists. If not: abort with `"Path not found: <path>"`
+### 0a — Pre-flight Setup
+
+1. **Verify path exists.** If not: abort with `"Path not found: <path>"`
+2. **`.scr-config.yml` auto-read**: if `<path>/.scr-config.yml` exists, read it and apply as flag defaults before command-line flags. Command-line flags override config file values. Example config:
+   ```yaml
+   # .scr-config.yml — project-level secure-code-review defaults
+   min_severity: high
+   compliance: pci
+   emit_ci: false
+   custom_rules: .security-rules.md
+   ```
+3. **CI auto-detect**: if env var `CI=true` (GitHub Actions, GitLab CI, CircleCI all set this) AND `--ci` flag not explicitly passed → enable `--ci` mode automatically.
 
 ### 0b — Language Detection
 
@@ -56,9 +72,12 @@ Claude-native SAST. No external tools — Claude IS the engine.
 | `build.gradle.kts` + kotlin | Kotlin | 2 |
 | `Package.swift` | Swift | 2 |
 | `build.sbt` | Scala | 2 |
+| `AndroidManifest.xml` / `*.kt` + `android` import | Android (Java/Kotlin) | 1 |
+| `*.swift` + `import UIKit`/`import SwiftUI` | iOS/Swift | 2 |
+| `main.js` + `electron` in `package.json` deps | Electron | 1 |
 | (none above) | Generic | 3 |
 
-Primary = language with most source files. Report all detected. For framework detection (Express/Django/Spring/etc.) load `techniques/sast-lang-specific.md`.
+Primary = language with most source files. Report all detected. For framework detection (Express/Django/Spring/etc.) load `techniques/sast-lang-specific.md`. Android, iOS, and Electron → load section 10.13, 10.14, or 10.15 respectively from `techniques/sast-lang-specific.md`.
 
 ### 0c — Auto-Exclude (always)
 `node_modules/ vendor/ .git/ dist/ build/ __pycache__/ *.min.js *.bundle.js *.map` + lock files + generated files
@@ -70,6 +89,8 @@ Primary = language with most source files. Report all detected. For framework de
 - **P3**: utils helpers middleware validators  
 - **P4**: tests build ci docker deploy  
 - Depth: Quick=P0+P1 · Standard=P0-P2 · Thorough=P0-P4
+
+**`--graph` override**: skip priority tiers entirely — load `techniques/graph-traversal.md` and run G1-G5 pipeline instead. The graph pipeline performs its own selective file discovery based on community priority labels. Standard SAST categories still apply but are executed only on G5 on-path files.
 
 ### 0e — Extension Routing
 
@@ -100,9 +121,15 @@ Primary = language with most source files. Report all detected. For framework de
 | Tier 1 language | `techniques/sast-lang-specific.md` |
 | LLM deps detected | `techniques/sast-llm.md` |
 | GraphQL deps detected | `techniques/sast-graphql.md` |
+| WebSocket/socket.io detected | `techniques/sast-websocket.md` |
+| `--thorough` or PII field names in schema | `techniques/sast-privacy.md` |
+| XML parsing code detected | `techniques/sast-xxe.md` |
+| gRPC deps detected | `techniques/sast-grpc.md` |
+| `--compliance pci/hipaa/soc2` | `techniques/sast-compliance.md` |
 | `--audit` or `--backdoor` | `techniques/backdoor-detection.md` |
 | `--audit` | `techniques/supply-chain.md` |
 | DevOps files detected | `techniques/devops-iac.md` |
+| `--graph` | `techniques/graph-traversal.md` — replaces standard file discovery with G1-G5 pipeline |
 | `--thorough` or DAST correlation | `references/route-mapping.md` |
 | `--custom-rules <f>` | read `<f>` → append as category 11 |
 | Always (output) | `techniques/output-dev.md` |
@@ -111,6 +138,9 @@ Primary = language with most source files. Report all detected. For framework de
 
 LLM dep signals: `openai` `anthropic` `langchain` `llamaindex` `litellm` `transformers` `cohere` `groq`
 GraphQL dep signals: `graphql` `apollo-server` `strawberry-graphql` `graphene` `hotchocolate` `hasura`
+WebSocket signals: `socket.io` `ws` `websocket` `faye-websocket` `uWebSockets`
+gRPC signals: `@grpc/grpc-js` `grpcio` `io.grpc` `google.golang.org/grpc`
+XML parsing signals: `DocumentBuilderFactory` `SAXParser` `xml.etree` `lxml` `SimpleXML` `DOMDocument` `XDocument` `encoding/xml`
 
 ## Severity
 

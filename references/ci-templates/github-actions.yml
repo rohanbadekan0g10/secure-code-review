@@ -19,6 +19,8 @@
 #
 # All third-party actions are pinned to full commit SHAs (not mutable tags)
 # to prevent supply chain attacks via action hijacking.
+# Verify/update SHAs: gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+# Or enable Dependabot for automated SHA updates: .github/dependabot.yml
 
 name: Security Scan
 
@@ -85,7 +87,7 @@ jobs:
           vuln-type: os,library
 
       - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v3 → verify SHA via: gh api repos/github/codeql-action/commits/v3 --jq .sha
         if: always()  # upload even if the previous step failed
         with:
           sarif_file: trivy-results.sarif
@@ -100,10 +102,11 @@ jobs:
           output_format: sarif
           output_file_path: checkov-results.sarif
           soft_fail: false
-          skip_check: CKV_GIT_1  # skip: GitHub Actions SHA pinning (already handled by Gitleaks)
+          # CKV_GIT_1 (SHA pinning) is intentionally left enabled — Checkov validates
+          # that all actions in this file are SHA-pinned, including future edits.
 
       - name: Upload Checkov results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v3 → verify SHA via: gh api repos/github/codeql-action/commits/v3 --jq .sha
         if: always()
         with:
           sarif_file: checkov-results.sarif

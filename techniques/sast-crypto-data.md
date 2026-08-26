@@ -23,16 +23,53 @@ description: "SAST categories 4+5: cryptography vulnerabilities (weak algorithms
 
 ## 4.3 Insecure Random
 
-- `Math.random()` (JS), `random.random()` (Python), `rand()` (PHP/Ruby) for cryptographic purposes
-- `java.util.Random` instead of `java.security.SecureRandom`
+Flag when non-CSPRNG functions generate values for: reset tokens, session IDs, OTPs, CSRF tokens, API keys, invite codes, verification codes.
+
+| Language | Insecure | Safe |
+|---|---|---|
+| JS/TS | `Math.random()` | `crypto.randomBytes(32).toString('hex')` |
+| Python | `random.random()` `random.randint()` | `secrets.token_hex(32)` `secrets.randbelow(n)` |
+| PHP | `rand()` `mt_rand()` | `random_bytes(32)` `bin2hex(random_bytes(16))` |
+| Ruby | `rand()` `Random.new` | `SecureRandom.hex(32)` |
+| Java | `new Random()` | `new SecureRandom()` |
+| Go | `math/rand` package | `crypto/rand` package |
+
+Severity: HIGH — token prediction → account takeover, OTP bypass.
 
 ## 4.4 Missing Certificate Validation
 
 - `rejectUnauthorized: false` (Node.js)
 - `verify=False` (Python requests)
 - `InsecureSkipVerify: true` (Go)
-- Custom `TrustManager` accepting all certs (Java)
+- Custom `TrustManager` accepting all certs (Java) — empty `checkServerTrusted()` body
 - `CURLOPT_SSL_VERIFYPEER => false` (PHP)
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` in env/config — disables cert verification for entire process
+
+## 4.5 Timing-Safe Comparison
+
+Using `==` to compare secrets allows timing-based attacks: response time reveals how many bytes matched, enabling byte-by-byte recovery.
+
+```python
+# ❌ NEVER: short-circuits on first mismatch
+if request.headers['X-Hub-Signature'] == compute_hmac(payload):
+    process_webhook()
+
+# ✅ ALWAYS:
+import hmac
+if hmac.compare_digest(request.headers['X-Hub-Signature'], compute_hmac(payload)):
+    process_webhook()
+```
+
+```javascript
+// ❌ NEVER:
+if (req.headers['x-signature'] === expectedSig) { ... }
+
+// ✅ ALWAYS:
+const crypto = require('crypto')
+if (crypto.timingSafeEqual(Buffer.from(req.headers['x-signature']), Buffer.from(expectedSig))) { ... }
+```
+
+**Flag:** `==` / `===` / `.equals()` where one operand is a HMAC, signature, API key, webhook secret, or token. Especially in webhook handlers, signature verification, API auth middleware. Severity: HIGH (HMAC bypass → webhook spoofing, auth bypass).
 
 ---
 
@@ -40,11 +77,32 @@ description: "SAST categories 4+5: cryptography vulnerabilities (weak algorithms
 
 ## 5.1 Secrets in Source
 
-Beyond cat 2.1, look for:
-- API keys for third-party services (Stripe `sk_live_*`, AWS `AKIA*`, GCP, Azure, Twilio, SendGrid)
-- Database connection strings with embedded passwords
-- OAuth client secrets / webhook signing secrets
+Pattern match these formats anywhere in source (excluding test fixtures and example configs):
+
+| Service | Pattern |
+|---|---|
+| AWS Access Key | `AKIA[0-9A-Z]{16}` |
+| AWS Secret | 40-char base64 near `aws_secret` or `AWS_SECRET` |
+| Stripe Live | `sk_live_[0-9a-zA-Z]{24,}` |
+| Stripe Test | `sk_test_[0-9a-zA-Z]{24,}` |
+| GitHub Token | `ghp_[0-9a-zA-Z]{36}` `github_pat_` |
+| Slack Token | `xoxb-[0-9]{11}-[0-9]{11}-[0-9a-zA-Z]{24}` `xoxp-` |
+| Twilio | `SK[0-9a-f]{32}` near `twilio` |
+| SendGrid | `SG\.[0-9a-zA-Z._-]{66}` |
+| Firebase | `AIza[0-9A-Za-z_-]{35}` |
+| GCP Service Account | `"type": "service_account"` in JSON |
+| Azure Connection | `DefaultEndpointsProtocol=https` with `AccountKey=` |
+| NPM Token | `npm_[0-9a-zA-Z]{36}` |
+| Docker Hub | `dckr_pat_[0-9a-zA-Z_-]{27}` |
+| Private Key | `-----BEGIN (RSA\|EC\|OPENSSH) PRIVATE KEY-----` |
+| JWT (hardcoded) | `eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+` |
+| DB URL with password | `(postgres\|mysql\|mongodb)://[^:]+:[^@]+@` |
+| Generic high-entropy | String >20 chars, Shannon entropy >4.5, not UUID/hash/URL format |
+
+Also flag:
+- OAuth client secrets / webhook signing secrets in source
 - Encryption keys in non-config files
+- Hardcoded credentials in connection string literals
 
 ## 5.2 Verbose Error Messages
 

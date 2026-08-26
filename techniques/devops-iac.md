@@ -200,6 +200,60 @@ backend "s3" {
 }
 ```
 
+### T6 — Lambda with Admin IAM
+
+```hcl
+# ❌ NEVER: Lambda role with administrator access
+resource "aws_iam_role_policy_attachment" "lambda_admin" {
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"   # full AWS admin
+  role       = aws_iam_role.lambda_role.name
+}
+
+# ❌ NEVER: Lambda with * on all resources
+resource "aws_iam_policy" "lambda_policy" {
+  policy = jsonencode({
+    Statement = [{
+      Action   = "lambda:*"    # or "*"
+      Resource = "*"
+    }]
+  })
+}
+
+# ✅ ALWAYS: Scope to specific actions and ARNs this function actually needs
+```
+
+### T7 — RDS Publicly Accessible
+
+```hcl
+# ❌ NEVER:
+resource "aws_db_instance" "example" {
+  publicly_accessible = true    # database endpoint exposed to internet
+}
+
+# ✅ ALWAYS:
+resource "aws_db_instance" "example" {
+  publicly_accessible = false
+  vpc_security_group_ids = [aws_security_group.db_sg.id]  # private VPC only
+}
+```
+
+### T8 — CloudFront Without WAF
+
+```hcl
+# ❌ NEVER: CloudFront distribution with no WAF association
+resource "aws_cloudfront_distribution" "example" {
+  # missing: web_acl_id = aws_wafv2_web_acl.example.arn
+  enabled = true
+}
+
+# ✅ ALWAYS:
+resource "aws_cloudfront_distribution" "example" {
+  web_acl_id = aws_wafv2_web_acl.example.arn
+}
+```
+
+Also flag: `aws_lb` (ALB) without `aws_wafv2_web_acl_association` for internet-facing load balancers.
+
 ---
 
 ## Kubernetes YAML Security
@@ -285,6 +339,42 @@ containers:
         memory: "256Mi"
         cpu: "500m"
 ```
+
+### K6 — RBAC Misconfigurations
+
+```yaml
+# ❌ NEVER: wildcard verb + wildcard resource = cluster admin
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]     # every resource type
+    verbs: ["*"]         # every operation including delete, patch
+
+# ❌ NEVER: pods/exec access → arbitrary command execution in any pod
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach", "pods/portforward"]
+    verbs: ["create", "get"]
+
+# ❌ NEVER: ClusterRoleBinding grants cluster-wide access when namespaced would do
+kind: ClusterRoleBinding   # flag when namespace-scoped workload doesn't need cluster scope
+
+# ✅ ALWAYS: least-privilege role, namespace-scoped, no wildcard verbs/resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: production
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+```
+
+Also flag:
+- `automountServiceAccountToken: true` (default) on pods that don't need API access — disable with `automountServiceAccountToken: false`
+- `serviceAccountName: default` — shared default SA accumulates permissions across workloads
+- SA tokens with `secrets:` access → can read all Secrets in the namespace
 
 ---
 
@@ -384,3 +474,91 @@ permissions:
 - Credentials loaded via `withCredentials` but echoed in `sh` steps
 - `@NonCPS` methods accessing secrets (bypasses Groovy sandbox)
 - Plugins not pinned to verified versions in `plugins.txt`
+
+---
+
+## Serverless / FaaS Security
+
+**File patterns:** `serverless.yml`, `serverless.ts`, `template.yaml` (SAM), `functions/*.js`, `handler.py`, `lambda_function.py`
+
+### SL1 — Missing Event Source Validation
+
+```javascript
+// ❌ NEVER: Lambda handler trusts event payload without validation
+exports.handler = async (event) => {
+  const userId = event.pathParameters.userId    // no type/format check
+  const body = JSON.parse(event.body)           // no schema validation
+  await db.update(userId, body)                 // unvalidated data to DB
+}
+
+// ✅ ALWAYS: validate event schema before processing
+const { userId } = event.pathParameters
+if (!/^[0-9a-f-]{36}$/.test(userId)) {
+  return { statusCode: 400, body: 'Invalid userId' }
+}
+```
+
+### SL2 — Lambda Function URL Without Auth
+
+```yaml
+# ❌ NEVER: public Lambda URL with no auth
+# serverless.yml
+functions:
+  myFunc:
+    url:
+      authorizer: NONE    # publicly accessible without any auth
+
+# ✅ ALWAYS:
+    url:
+      authorizer: aws_iam  # requires SigV4
+# OR: route through API Gateway with Cognito/Lambda authorizer
+```
+
+Also flag: API Gateway routes with `authorization: NONE` on non-public endpoints.
+
+### SL3 — Secrets in Lambda Environment Variables
+
+```hcl
+# ❌ NEVER: secrets in plaintext env vars (visible in console, logs, CloudFormation)
+resource "aws_lambda_function" "example" {
+  environment {
+    variables = {
+      DB_PASSWORD = "prod_password_here"
+      API_KEY     = "sk_live_abc123"
+    }
+  }
+}
+
+# ✅ ALWAYS: reference SSM Parameter Store or Secrets Manager at runtime
+# In code: ssm.getParameter({ Name: '/app/db/password', WithDecryption: true })
+```
+
+### SL4 — Overly Permissive Lambda Execution Role
+
+Flag when the Lambda execution role has:
+- `Action: "s3:*"` / `Action: "*"` on `Resource: "*"`
+- Access to SSM Parameters beyond its own path prefix (`/app/my-function/*`)
+- Cross-account trust (`sts:AssumeRole` from any account)
+- `iam:PassRole` — allows the function to escalate privileges by passing roles to other services
+
+### SL5 — Missing Timeout / Reserved Concurrency
+
+```yaml
+# ❌ NEVER: default timeout (3s for Lambda), no concurrency cap
+functions:
+  processQueue:
+    handler: handler.processQueue
+    # timeout: missing — defaults to 3s, causes silent truncation on slow DB
+    # reservedConcurrency: missing — runaway invocations → bill DoS
+
+# ✅ ALWAYS:
+    timeout: 30               # explicit, matched to expected operation time
+    reservedConcurrency: 50   # caps blast radius on runaway loops
+```
+
+### SL6 — Cold-Start Secrets / Cached Credentials
+
+Flag Lambda functions that:
+- Cache database connections or tokens in the global scope across invocations without TTL
+- Store decrypted secrets in module-level variables — persisted across warm invocations and visible in memory dumps
+- Use `process.env.SECRET` fetched at deploy time — not rotatable without redeploy; use SSM/Secrets Manager at runtime with caching

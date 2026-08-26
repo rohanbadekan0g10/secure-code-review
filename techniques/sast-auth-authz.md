@@ -44,7 +44,76 @@ Compare route definitions against middleware/guard application:
 - `jwt.decode()` without `verify=True` (Python PyJWT)
 - Symmetric secret used where asymmetric expected
 
-## 2.6 Insecure Token Generation
+## 2.6 JWT Algorithm Confusion (RS256 → HS256)
+
+When server uses RS256 (asymmetric), attacker creates a token with `"alg":"HS256"` signed using the server's **public key** as the HMAC secret. If the library accepts whatever algorithm the token header claims, the token passes.
+
+```javascript
+// ❌ NEVER: algorithm taken from token header
+jwt.verify(token, publicKey)
+jwt.verify(token, publicKey, { algorithms: ['HS256', 'RS256'] })  // accepts both
+
+// ✅ ALWAYS: pin to expected algorithm only
+jwt.verify(token, publicKey, { algorithms: ['RS256'] })
+```
+
+```python
+# ❌ NEVER: no algorithms pin
+jwt.decode(token, public_key, options={"verify_signature": True})
+# ❌ NEVER: disables expiry check — common copy-paste from Stack Overflow
+jwt.decode(token, key, algorithms=['HS256'], options={"verify_exp": False})
+
+# ✅ ALWAYS:
+jwt.decode(token, public_key, algorithms=["RS256"])
+```
+
+Severity: CRITICAL — arbitrary JWT claims → full auth bypass.
+
+## 2.7 Missing JWT Claims Validation
+
+```javascript
+// ❌ NEVER: no issuer/audience check — accepts tokens from any service
+jwt.verify(token, secret)
+
+// ✅ ALWAYS: validate all relevant claims
+jwt.verify(token, secret, {
+  algorithms: ['HS256'],
+  issuer: 'https://auth.myapp.com',
+  audience: 'myapp-api'
+})
+```
+
+Flag:
+- `jwt.sign()` / `jwt.encode()` without `expiresIn` / `exp` — forever-valid tokens
+- `jwt.verify()` without `issuer` and `audience` on multi-service deployments
+- `options={"verify_exp": False}` — disables expiry check entirely
+- Access tokens with `exp` > 24 hours (flag as MEDIUM)
+
+## 2.8 OAuth 2.0 / OIDC Vulnerabilities
+
+```javascript
+// ❌ NEVER: missing state param — CSRF on OAuth flow
+app.get('/oauth/callback', (req, res) => {
+  const code = req.query.code
+  // no state validation → CSRF: attacker tricks victim into binding attacker's account
+  exchangeCode(code)
+})
+
+// ✅ ALWAYS: verify state matches session value
+if (req.query.state !== req.session.oauthState) {
+  return res.status(403).send('CSRF detected')
+}
+```
+
+**What to flag:**
+- OAuth callback without `state` parameter validation
+- `redirect_uri` not validated against a registered allowlist (open redirect → token theft)
+- `response_type=token` (implicit flow) — access token in URL fragment, logged in server logs
+- `id_token` accepted without signature verification (`jwks_uri` fetch + algorithm pin)
+- PKCE (`code_challenge`) missing on public clients (mobile/SPA) — authorization code interception
+- Client secret hardcoded in client-side JS or mobile app binary
+
+## 2.9 Insecure Token Generation
 
 - `Math.random()` / `random.random()` / `rand()` for security tokens
 - UUID v1 (time-based, predictable) for session tokens
